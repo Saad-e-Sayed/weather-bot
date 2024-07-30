@@ -45,7 +45,7 @@ async def start(update: telegram.Update, _context: telegram.ext.ContextTypes.DEF
     return State.query
 
 
-async def help_(update: telegram.Update, _context: telegram.ext.ContextTypes.DEFAULT_TYPE) -> State:
+async def help_command(update: telegram.Update, _context: telegram.ext.ContextTypes.DEFAULT_TYPE) -> State:
     await update.message.reply_html(
         "Usage is very simple, just type your query in plain English text and I will fetch the API for you. "
         "I depend on a simple Natural Language Processing technique which could fail sometimes."
@@ -194,22 +194,23 @@ class NamedEntityFilter(telegram.ext.filters.MessageFilter):
         return {}
 
 
-handlers = [
-    telegram.ext.CommandHandler('start', start),
-    telegram.ext.MessageHandler(telegram.ext.filters.TEXT & ~telegram.ext.filters.COMMAND, raw),
-    telegram.ext.MessageHandler(telegram.ext.filters.Regex('((?i)yes|no)'), yes_no_answer),
-    telegram.ext.CommandHandler('help', help_),
-    telegram.ext.MessageHandler(NamedEntityFilter('GPE'), take_city),
-    telegram.ext.CallbackQueryHandler(button_clicked),
-]
+start_command_handler = telegram.ext.CommandHandler('start', start)
+help_command_handler = telegram.ext.CommandHandler('help', help_command)
+
+raw_message_handler = telegram.ext.MessageHandler(telegram.ext.filters.TEXT & ~telegram.ext.filters.COMMAND, raw)
+yesno_message_handler = telegram.ext.MessageHandler(telegram.ext.filters.Regex('((?i)yes|no)'), yes_no_answer)
+gpe_message_handler = telegram.ext.MessageHandler(NamedEntityFilter('GPE'), take_city)
+
+toggle_button_handler = telegram.ext.CallbackQueryHandler(button_clicked)
+
 conv_handler = telegram.ext.ConversationHandler(
-    entry_points=[handlers[0]],
+    entry_points=[start_command_handler, help_command_handler],
     states={
-        State.query: [handlers[1]],
-        State.ask: [handlers[2], handlers[1]],
-        State.expecting_city: [handlers[4]],
+        State.query: [raw_message_handler],
+        State.ask: [yesno_message_handler, raw_message_handler],
+        State.expecting_city: [gpe_message_handler],
     },
-    fallbacks=[handlers[0], handlers[3], handlers[5]],
+    fallbacks=[start_command_handler, help_command_handler, toggle_button_handler],
     name="weatherbot_conversation",
     persistent=True,
 )
@@ -224,9 +225,8 @@ def main() -> None:
         .arbitrary_callback_data(True)
         .build()
     )
+    application.add_handler(toggle_button_handler)
     application.add_handler(conv_handler)
-    application.add_handler(handlers[3])
-    application.add_handler(handlers[5])
     application.run_polling()
 
 
