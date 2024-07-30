@@ -43,13 +43,11 @@ def _numbered(decorated):
     num = _current_number
     _current_number *= 2
     _method_to_binary[name] = num
-    _binary_to_method[num] = name
     return decorated
 
 
 _current_number = 1
 _method_to_binary = {}
-_binary_to_method = {}
 
 
 class APIData:
@@ -110,7 +108,7 @@ class APIData:
 
     def __str__(self) -> str:
         text = ''
-        for index, name in _binary_to_method.items():
+        for name, index in _method_to_binary.items():
             if self.state & index:
                 method = getattr(self, name)
                 text += method()
