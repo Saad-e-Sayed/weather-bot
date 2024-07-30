@@ -18,10 +18,11 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings(action="ignore", message=r".*CallbackQueryHandler", category=telegram.warnings.PTBUserWarning)
 
 dotenv.load_dotenv()
-
-TOKEN = os.environ['BOT_TOKEN']
 with open('developer.json', 'rb') as fp:
     developer = telegram.User(**json.load(fp))
+
+TOKEN = os.environ['BOT_TOKEN']
+ReplyData = tuple[str, typing.Optional[telegram.TelegramObject], typing.Optional[telegram.constants.ParseMode]]
 
 
 class State(enum.IntEnum):
@@ -57,9 +58,10 @@ async def raw(update: telegram.Update, _context: telegram.ext.ContextTypes.DEFAU
     doc, outcome = nlp.parse(update.message.text)
     state = State.query
     reply_markup = None
+    parse_mode = None
 
     if outcome is nlp.Outcome.weather_city:
-        reply, reply_markup = get_weather_of_a_city(doc)
+        reply, reply_markup, parse_mode = get_weather_of_a_city(doc)
 
     elif outcome is nlp.Outcome.ask:
         intention = outcome.value.pop()
@@ -75,12 +77,11 @@ async def raw(update: telegram.Update, _context: telegram.ext.ContextTypes.DEFAU
                  "Try another format that matches better, "
                  "Or try /help for more information on how this bot works.")
 
-    await update.message.reply_text(reply, reply_markup=reply_markup)
+    await update.message.reply_text(reply, reply_markup=reply_markup, parse_mode=parse_mode)
     return state
 
 
-def get_weather_of_a_city(doc: nlp.spacy.tokens.Doc, default_reply_on_failure: str = '') \
-        -> tuple[str, typing.Optional[telegram.TelegramObject]]:
+def get_weather_of_a_city(doc: nlp.spacy.tokens.Doc, default_reply_on_failure: str = '') -> ReplyData:
     try:
         city = nlp.extract_ent(doc, label='GPE').text
     except IndexError:
@@ -91,16 +92,18 @@ def get_weather_of_a_city(doc: nlp.spacy.tokens.Doc, default_reply_on_failure: s
             "Sure, I can tell you about the weather condition in any city, "
             "just mention the city in your text.")
         reply_markup = None
+        parse_mode = None
     else:
-        reply, reply_markup = fetch_api(city)
-    return reply, reply_markup
+        reply, reply_markup, parse_mode = fetch_api(city)
+    return reply, reply_markup, parse_mode
 
 
-def fetch_api(city: str) -> tuple[str, typing.Optional[telegram.TelegramObject]]:
+def fetch_api(city: str) -> ReplyData:
     resp = api.get(city)
     if resp.ok:
         data = api.APIData(resp.json())
         reply = str(data)
+        parse_mode = telegram.constants.ParseMode.MARKDOWN_V2
         keyboard = build_keyboard(data)
         reply_markup = telegram.InlineKeyboardMarkup(keyboard)
     else:
@@ -108,10 +111,11 @@ def fetch_api(city: str) -> tuple[str, typing.Optional[telegram.TelegramObject]]
                  "failed to fetch weather API. "
                  f"The API responded with status code {resp.status_code} '{resp.reason}'.")
         reply_markup = None
-    return reply, reply_markup
+        parse_mode = None
+    return reply, reply_markup, parse_mode
 
 
-def build_keyboard(data: api.APIData):
+def build_keyboard(data: api.APIData) -> list[list[telegram.InlineKeyboardButton]]:
     sections = data.sections()
     del sections['location']  # first section (location) is not toggleable
     keyboard = []
@@ -139,7 +143,8 @@ async def button_clicked(update: telegram.Update, _context: telegram.ext.Context
     data = toggle()
     keyboard = build_keyboard(data)
     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text=str(data), reply_markup=reply_markup)
+    parse_mode = telegram.constants.ParseMode.MARKDOWN_V2
+    await query.edit_message_text(text=str(data), reply_markup=reply_markup, parse_mode=parse_mode)
 
 
 async def yes_no_answer(update: telegram.Update, context: telegram.ext.ContextTypes.DEFAULT_TYPE) -> State:
@@ -150,7 +155,7 @@ async def yes_no_answer(update: telegram.Update, context: telegram.ext.ContextTy
     if answer == 'yes':
         doc = nlp.nlp(update.effective_message.text)
         reply = "Please specify the city in the next message."
-        returned_reply, reply_markup = get_weather_of_a_city(doc, default_reply_on_failure=reply)
+        returned_reply, reply_markup, parse_mode = get_weather_of_a_city(doc, default_reply_on_failure=reply)
         if returned_reply == reply:
             state = State.expecting_city
         reply = returned_reply
@@ -158,15 +163,16 @@ async def yes_no_answer(update: telegram.Update, context: telegram.ext.ContextTy
         # answer was no
         reply = "Please try another query."
         reply_markup = None
+        parse_mode = None
 
-    await update.message.reply_text(reply, reply_markup=reply_markup)
+    await update.message.reply_text(reply, reply_markup=reply_markup, parse_mode=parse_mode)
     return state
 
 
 async def take_city(update: telegram.Update, context: telegram.ext.ContextTypes.DEFAULT_TYPE) -> State:
     doc, ent = context.args
-    reply, reply_markup = fetch_api(ent.text)
-    await update.message.reply_text(reply, reply_markup=reply_markup)
+    reply, reply_markup, parse_mode = fetch_api(ent.text)
+    await update.message.reply_text(reply, reply_markup=reply_markup, parse_mode=parse_mode)
     return State.query
 
 

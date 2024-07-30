@@ -3,6 +3,7 @@ import json
 import os
 
 import requests
+from telegram.helpers import escape_markdown
 
 API_KEY = os.environ.get('API_KEY')
 if API_KEY is None:
@@ -26,7 +27,7 @@ def get_condition(resp: requests.Response) -> Condition:
     condition = json_dict['current']['condition']
 
     # return operator.itemgetter('code', 'icon', 'text')(condition)
-    return Condition(**condition)  # same as above but the tuple is named
+    return Condition(**condition)  # same as above but return named tuple instead
 
 
 def convert_direction(wind_degree: int) -> str:
@@ -54,7 +55,7 @@ _binary_to_method = {}
 class APIData:
     def __init__(self, json_dict: dict):
         self.json = json_dict
-        self.state = 0b00011001
+        self.state = 0b00011001  # Show location, condition, and temperature by default
 
     def __getitem__(self, item: str):
         keys = item.split('.')
@@ -63,36 +64,39 @@ class APIData:
             obj = obj[key]
         return obj
 
+    def escape(self, item: str, entity_type: str = None) -> str:
+        return escape_markdown(str(self[item]), version=2, entity_type=entity_type)
+
     @_numbered
     def location(self) -> str:
-        return "{country}, {region}".format(country=self['location.country'],
-                                            region=self['location.region'])
+        return "*{country}, {region}*\n".format(country=self.escape('location.country'),
+                                                region=self.escape('location.region'))
 
     @_numbered
     def localtime(self) -> str:
-        return "Local time:  {localtime} {emoji}".format(localtime=self['location.localtime'],
-                                                         emoji=('☀️' if self['current.is_day'] else '🌑'))
+        return "⌛ *Local time*:  `{localtime}` {emoji}".format(localtime=self.escape('location.localtime', 'code'),
+                                                                emoji=('☀️' if self['current.is_day'] else '🌑'))
 
     @_numbered
     def lat_long(self) -> str:
-        return "Latitude {lat}, Longitude {lon}".format(lat=self['location.lat'],
-                                                        lon=self['location.lon'])
+        return "🌐 *Latitude*: `{lat}`, *Longitude*: `{lon}`".format(lat=self.escape('location.lat', 'code'),
+                                                                     lon=self.escape('location.lon', 'code'))
 
     @_numbered
     def condition(self) -> str:
-        return "Condition is {text}".format(text=self['current.condition.text'])
+        return "♾️ *Condition* is _{text}_".format(text=self.escape('current.condition.text'))
 
     @_numbered
     def temperature(self) -> str:
-        return "Temperature {c}°C ({f}°F)".format(c=self['current.temp_c'],
-                                                  f=self['current.temp_f'])
+        return r"🌡️ *Temperature* `{c}°C` \(`{f}°F`\)".format(c=self.escape('current.temp_c', 'code'),
+                                                              f=self.escape('current.temp_f', 'code'))
 
     @_numbered
     def wind(self) -> str:
         return (
-            "Wind speed is {mph} miles/hour ({kph} km/h) in the {dir} direction"
-            .format(mph=self['current.wind_mph'],
-                    kph=self['current.wind_kph'],
+            r"💨 *Wind* __speed__ is `{mph} miles/hour` \(`{kph} km/h`\) in the `{dir}` __direction__"
+            .format(mph=self.escape('current.wind_mph', 'code'),
+                    kph=self.escape('current.wind_kph', 'code'),
                     dir=convert_direction(self['current.wind_degree'])))
 
     _display_names = {
@@ -144,7 +148,7 @@ class ToggleSection:
         return json.dumps(d)
 
     @classmethod
-    def from_json(cls, s: str):
+    def from_json(cls, s: str) -> "ToggleSection":
         d = json.loads(s)
         data = APIData(d['data'])
         data.state = d['state']
